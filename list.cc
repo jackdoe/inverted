@@ -363,6 +363,8 @@ public:
     std::vector<scored> topN(int n_items,StoredList &documents) {
         std::vector<scored> items;
         struct scored scored,min_item;
+        min_item.id = 0;
+        min_item.score = 0;
         bool is_heap = false;
         while (query.score(&scored,documents)) {
             if (scored.score > min_item.score) {
