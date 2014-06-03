@@ -77,14 +77,11 @@ public:
         term = std::string(fn);
         // D("found data with %d payload size, entry size: %lu",stored_payload_size(),sizeof_entry());
         assert(initial_payload_size == stored_payload_size());
-        cursor = 0;
+        reset();
     }
     ~StoredList() {
         _munmap();
         close(fd);
-    }
-    std::string toString() {
-        return std::string("term: ") + term;
     }
     void sync(void) {
         if (msync(stored,size,MS_SYNC) == -1)
@@ -231,6 +228,9 @@ public:
         cursor++;
         return current();
     }
+    void reset(void) {
+        cursor = 0;
+    }
 };
 
 class Advancable {
@@ -240,11 +240,15 @@ public:
     virtual bool score(struct scored *scored,StoredList &documents) = 0;
     virtual s32 next(void) = 0;
     virtual s32 current(void) = 0;
-    virtual std::string toString() = 0;
+    virtual void reset(void) = 0;
 };
 
 bool smallest (const Advancable *a, const Advancable *b) {
     return a->count() < b->count();
+}
+
+bool largest (const Advancable *a, const Advancable *b) {
+    return a->count() > b->count();
 }
 
 bool scored_cmp (const scored a, const scored b) {
@@ -258,6 +262,7 @@ public:
     StoredList *list;
     TermQuery(StoredList *list_) : Advancable() {
         list = list_;
+        reset();
     }
     s32 skip_to(s32 id) {
         return list->skip_to(id);
@@ -283,8 +288,8 @@ public:
     s32 next(void) {
         return list->next();
     }
-    std::string toString() {
-        return list->toString();
+    void reset(void) {
+        list->reset();
     }
 };
 
@@ -298,7 +303,7 @@ public:
     void add(Advancable *q) {
         queries.push_back(q);
         std::sort(queries.begin(), queries.end(),smallest);
-        cursor = queries[0]->current();
+        reset();
     }
     s32 skip_to(s32 id) {
         if (cursor == NO_MORE)
@@ -343,13 +348,13 @@ public:
             return 0;
         return queries[0]->count();
     }
-
-    std::string toString() {
-        std::string r = "bool: (";
+    void reset(void) {
         for (auto query : queries)
-            r += std::string(" ") + query->toString() + std::string(" ");
-        r += ")";
-        return r;
+            query->reset();
+        if (queries.size() > 0)
+            cursor = queries[0]->current();
+        else
+            cursor = NO_MORE;
     }
 };
 
@@ -358,6 +363,7 @@ public:
     Advancable &query;
     Collector(Advancable &query_) : query(query_) {}
     std::vector<scored> topN(int n_items,StoredList &documents) {
+        query.reset();
         std::vector<scored> items;
         struct scored scored,min_item;
         min_item.id = 0;
@@ -388,4 +394,3 @@ public:
         return items;
     }
 };
-
