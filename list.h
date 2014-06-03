@@ -29,8 +29,7 @@ typedef int32_t  s32;
 typedef int64_t  s64;
 struct entry {
     s32 id;
-    u16 freq;
-    u16 plen;
+    u8 freq;
     u8 payload[0];
 } __attribute__((packed));
 
@@ -58,11 +57,11 @@ public:
     std::string term;
     struct stored *stored;
     StoredList(const char *fn, int initial_payload_size = 4) {
-        if ((this->fd = open(fn, O_RDWR|O_CREAT|O_CLOEXEC,S_IRUSR|S_IWUSR)) == -1)
+        if ((fd = open(fn, O_RDWR|O_CREAT|O_CLOEXEC,S_IRUSR|S_IWUSR)) == -1)
             saypx("open");
 
         struct stat st;
-        if (fstat(this->fd, &st) == -1)
+        if (fstat(fd, &st) == -1)
             saypx("stat");
 
         struct stored s;
@@ -70,56 +69,56 @@ public:
             // zero init
             bzero(&s,sizeof(s));
             s.stats.max_payload_size = initial_payload_size;
-            if (write(this->fd,&s,sizeof(s)) != sizeof(s))
+            if (write(fd,&s,sizeof(s)) != sizeof(s))
                 saypx("failed to create empty list");
             st.st_size = sizeof(s);
         }
-        this->_mmap(st.st_size);
-        this->term = std::string(fn);
-        // D("found data with %d payload size, entry size: %lu",this->stored_payload_size(),sizeof_entry());
-        assert(initial_payload_size == this->stored_payload_size());
-        this->cursor = 0;
+        _mmap(st.st_size);
+        term = std::string(fn);
+        // D("found data with %d payload size, entry size: %lu",stored_payload_size(),sizeof_entry());
+        assert(initial_payload_size == stored_payload_size());
+        cursor = 0;
     }
     ~StoredList() {
-        this->_munmap();
-        close(this->fd);
+        _munmap();
+        close(fd);
     }
     std::string toString() {
-        return std::string("term: ") + this->term;
+        return std::string("term: ") + term;
     }
     void sync(void) {
-        if (msync(this->stored,this->size,MS_SYNC) == -1)
+        if (msync(stored,size,MS_SYNC) == -1)
             saypx("msync");
     }
     u32 count(void) const {
-        return this->stored->stats.n;
+        return stored->stats.n;
     }
     s32 skip_to(s32 id) {
         // try the current position
         // then the next position
         // and then the requested positon
-        struct entry *e = entry_at(this->cursor,id);
+        struct entry *e = entry_at(cursor,id);
         if (e == NULL) {
-            e = this->entry_at(this->cursor + 1,id);
+            e = entry_at(cursor + 1,id);
             if (e != NULL) {
-                this->cursor += 1;
+                cursor += 1;
             } else {
                 int found;
-                u32 where = this->closest(id,&found,this->cursor);
+                u32 where = closest(id,&found,cursor + 1);
                 if (found)
-                    this->cursor = where;
+                    cursor = where;
                 else
                     return NO_MORE;
             }
         }
-        return this->cursor;
+        return cursor;
     }
     u32 closest(s32 id, int *found,u32 start = 0) {
-        u32 end = this->stored->stats.n;
+        u32 end = stored->stats.n;
         u32 mid = end;
         while (start < end) {
             mid = start + (end - start) / 2;
-            struct entry *e = this->entry_at(mid,0);
+            struct entry *e = entry_at(mid,0);
             if (e->id < id) {
                 start = mid + 1;
             } else if (e->id > id) {
@@ -133,44 +132,44 @@ public:
         return start;
     }
     void insert(s32 id, u32 payload = 0) {
-        this->insert(id,(u8 *)&payload,sizeof(payload));
+        insert(id,(u8 *)&payload,sizeof(payload));
     }
     void insert(s32 id, float payload) {
-        this->insert(id,(u8 *)&payload,sizeof(payload));
+        insert(id,(u8 *)&payload,sizeof(payload));
     }
     void insert(s32 id, u8 *buf, u8 len) {
         assert(id >= 0);
-        assert(len <= this->stored_payload_size());
+        assert(len <= stored_payload_size());
         int found;
-        u32 where = this->closest(id,&found);
+        u32 where = closest(id,&found);
         struct entry *e;
         if (!found) {
-            int n = this->stored->stats.n;
-            this->_remap(this->sizeof_entry(1));
-            this->stored->stats.n++;
-            size_t bytes = this->sizeof_entry(n - where);
+            int n = stored->stats.n;
+            _remap(sizeof_entry(1));
+            stored->stats.n++;
+            size_t bytes = sizeof_entry(n - where);
             if (bytes > 0)
-                memmove((u8 *) this->entry_at(where + 1), (u8 *)this->entry_at(where),bytes);
-            e = this->entry_at(where);
+                memmove((u8 *) entry_at(where + 1), (u8 *)entry_at(where),bytes);
+            e = entry_at(where);
             e->id = id;
             e->freq = 0;
-            if (id > this->stored->stats.last_id)
-                this->stored->stats.last_id = id;
+            if (id > stored->stats.last_id)
+                stored->stats.last_id = id;
         } else {
-            e = this->entry_at(where);
+            e = entry_at(where);
         }
-        e->plen = len;
         bcopy(buf,&e->payload[0] ,len);
-        e->freq++;
+        if (e->freq < 255)
+            e->freq++;
     }
     void dump(void) {
         struct entry *e;
         int i,j = 0;
-        for (i = 0; i < this->count(); i++){
-            e = this->entry_at(i,0);
-            printf("pos: %d; id: %d; freq: %d; plen: %d; payload:\n\t",i,e->id,e->freq,e->plen);
+        for (i = 0; i < count(); i++){
+            e = entry_at(i,0);
+            printf("pos: %d; id: %d; freq: %d; payload:\n\t",i,e->id,e->freq);
             printf("[");
-            for (j = 0; j < e->plen; j++) {
+            for (j = 0; j < stored_payload_size(); j++) {
                 printf(" 0x%x  ",e->payload[j]);
             }
             printf("]");
@@ -179,45 +178,44 @@ public:
     }
 
     void _mmap(size_t n) {
-        this->stored = (struct stored *) mmap(0, n, PROT_READ|PROT_WRITE, MAP_SHARED, this->fd, 0);
-        if (this->stored == MAP_FAILED) {
-            close(this->fd);
+        stored = (struct stored *) mmap(0, n, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
+        if (stored == MAP_FAILED) {
+            close(fd);
             saypx("mmap");
         }
-        this->size = n;
+        size = n;
     }
     void _munmap(void) {
-        if (this->stored != NULL) {
-            if (munmap(this->stored, this->size) == -1)
+        if (stored != NULL) {
+            if (munmap(stored, size) == -1)
                 saypx("munmap");
         }
-        this->stored = NULL;
+        stored = NULL;
     }
     void _remap(int n) {
-        assert(this->stored != NULL);
-        u32 asize = sizeof(struct stored) + this->sizeof_entry(this->stored->stats.n);
-        if (asize + n >= this->size) {
-            n += asize + 1000 * this->sizeof_entry();
-            this->_munmap();
-            if (ftruncate(this->fd,n) == -1)
+        assert(stored != NULL);
+        u32 asize = sizeof(struct stored) + sizeof_entry(stored->stats.n);
+        if (asize + n >= size) {
+            n += asize + 1000 * sizeof_entry();
+            _munmap();
+            if (ftruncate(fd,n) == -1)
                 saypx("ftruncate");
-            this->_mmap(n);
+            _mmap(n);
         }
     }
     u32 stored_payload_size(void) {
-        return this->stored->stats.max_payload_size;
+        return stored->stats.max_payload_size;
     }
     size_t sizeof_entry(int n = 1) {
-        return (sizeof(struct entry) + this->stored_payload_size()) * n;
+        return (sizeof(struct entry) + stored_payload_size()) * n;
     }
     struct entry *entry_at(void) {
         return entry_at(cursor,0);
     }
     struct entry *entry_at(u32 pos,s32 expect = 0) {
-        if (pos >= this->count())
+        if (pos >= count())
             return NULL;
-        struct entry *e = (struct entry *) (this->stored->begin + (this->sizeof_entry(pos)));
-        assert (e->plen <= stored_payload_size());
+        struct entry *e = (struct entry *) (stored->begin + (sizeof_entry(pos)));
         if (expect > 0 && e->id != expect)
             return NULL;
         return e;
