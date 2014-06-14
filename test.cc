@@ -8,7 +8,9 @@ int main(void) {
     documents.insert(3,0.130f);
     documents.insert(4,0.140f);
     documents.insert(5,0.160f);
-
+    documents.remove(4);
+    documents.insert(6,0.160f);
+    documents.dump();
     // add some terms
     StoredList t_new("_new.idx");
     t_new.insert(1);
@@ -16,6 +18,7 @@ int main(void) {
     t_new.insert(3);
     t_new.insert(4);
     t_new.insert(5);
+    t_new.remove(4);
     StoredList t_york("_york.idx");
     t_york.insert(1);
     t_york.insert(2);

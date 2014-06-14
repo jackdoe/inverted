@@ -159,6 +159,19 @@ public:
         if (e->freq < 255)
             e->freq++;
     }
+    int remove(s32 id) {
+        assert(id >= 0);
+        int found;
+        u32 where = closest(id,&found);
+        if (found) {
+            int n = stored->stats.n;
+            size_t bytes = sizeof_entry(n - where - 1);
+            if (bytes > 0)
+                memmove((u8 *) entry_at(where), (u8 *)entry_at(where + 1),bytes);
+            stored->stats.n--;
+        }
+        return found;
+    }
     void dump(void) {
         struct entry *e;
         int i,j = 0;
