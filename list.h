@@ -49,6 +49,19 @@ struct scored {
     double score;
 };
 
+bool has_suffix(const char *s, const char *suffix) {
+    size_t suffix_len = strlen(suffix);
+    size_t s_len = strlen(s);
+    int i;
+    if (s_len < suffix_len)
+        return false;
+    for (i = 0; i < suffix_len; i++) {
+        if (s[s_len - suffix_len + i] != suffix[i])
+            return false;
+    }
+    return true;
+}
+
 class StoredList {
 public:
     u32 size;
@@ -57,6 +70,10 @@ public:
     std::string term;
     struct stored *stored;
     StoredList(const char *fn, int initial_payload_size = 4) {
+        assert(fn != NULL);
+        assert(has_suffix(fn,".idx") == true);
+        term = std::string(fn);
+
         if ((fd = open(fn, O_RDWR|O_CREAT|O_CLOEXEC,S_IRUSR|S_IWUSR)) == -1)
             saypx("open");
 
@@ -74,7 +91,6 @@ public:
             st.st_size = sizeof(s);
         }
         _mmap(st.st_size);
-        term = std::string(fn);
         // D("found data with %d payload size, entry size: %lu",stored_payload_size(),sizeof_entry());
         assert(initial_payload_size == stored_payload_size());
         reset();
