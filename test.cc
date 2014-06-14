@@ -37,8 +37,19 @@ int main(void) {
     q_new_york.add(&q_york);
     q_new_york_state.add(&q_new_york);
     q_new_york_state.add(&q_state);
+    printf("must: new york state:\n");
     Collector c(q_new_york_state);
     for (auto s : c.topN(3,documents)) {
+        printf("doc: %d, score: %f\n",s.id,s.score);
+    }
+
+    BoolShouldQuery q_should_new_york_state(2);
+    q_should_new_york_state.add(&q_new);
+    q_should_new_york_state.add(&q_state);
+    q_should_new_york_state.add(&q_york);
+    printf("should: new york state (msm=2):\n");
+    Collector c_state(q_should_new_york_state);
+    for (auto s : c_state.topN(10,documents)) {
         printf("doc: %d, score: %f\n",s.id,s.score);
     }
 }

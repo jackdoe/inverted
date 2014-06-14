@@ -310,11 +310,13 @@ public:
             return e->id;
         return NO_MORE;
     }
+
     s32 next(void) {
         // hack: cursor holds the current index, not the current doc
         cursor++;
         return current();
     }
+
     void reset(void) {
         cursor = 0;
     }
@@ -327,11 +329,13 @@ public:
     BoolMustQuery() : Advancable() {
         cursor = NO_MORE;
     }
+
     void add(Advancable *q) {
         queries.push_back(q);
         std::sort(queries.begin(), queries.end(), smallest);
         reset();
     }
+
     s32 skip_to(s32 id) {
         if (cursor == NO_MORE)
             return NO_MORE;
@@ -343,6 +347,7 @@ public:
         cursor = id;
         return cursor;
     }
+
     bool score(struct scored *s, StoredList &documents) {
         // position everything to the id or fail
         if (skip_to(cursor) == NO_MORE)
@@ -351,9 +356,11 @@ public:
             query->score(s, documents);
         return true;
     }
+
     s32 current(void) {
         return cursor;
     }
+
     s32 next(void) {
         if (cursor == NO_MORE)
             return NO_MORE;
@@ -375,11 +382,123 @@ public:
             return 0;
         return queries[0]->count();
     }
+
     void reset(void) {
         for (auto query : queries)
             query->reset();
         if (queries.size() > 0)
             cursor = queries[0]->current();
+        else
+            cursor = NO_MORE;
+    }
+};
+
+class BoolShouldQuery : public Advancable {
+public:
+    s32 cursor;
+    std::vector<Advancable *> queries;
+    int minimum_should_match;
+    BoolShouldQuery(int minimum_should_match_) : Advancable() {
+        cursor = NO_MORE;
+        minimum_should_match = minimum_should_match_;
+    }
+
+    void add(Advancable *q) {
+        queries.push_back(q);
+        std::sort(queries.begin(), queries.end(), largest);
+        reset();
+    }
+
+    s32 skip_to(s32 id) {
+        if (cursor == NO_MORE)
+            return NO_MORE;
+        int need = minimum_should_match;
+        for (auto query : queries) {
+            if (query->skip_to(id) != NO_MORE) {
+                need--;
+            }
+        }
+        if (need > 0)
+            cursor = NO_MORE;
+        else
+            cursor = id;
+        return cursor;
+    }
+
+    bool score(struct scored *s, StoredList &documents) {
+        if (skip_to(cursor) == NO_MORE)
+            return false;
+        for (auto query : queries) {
+            if (query->current() == cursor) {
+                query->score(s, documents);
+            }
+        }
+        return true;
+    }
+
+    s32 current(void) {
+        return cursor;
+    }
+    Advancable *query_with_smallest_doc_id() {
+        Advancable *min = NULL;
+        for (auto query : queries) {
+            if (min == NULL || (query->current() != NO_MORE && min->current() > query->current()))
+                min = query;
+        }
+        return min;
+    }
+    s32 next(void) {
+        if (cursor == NO_MORE)
+            return NO_MORE;
+        /*
+
+         minimum_should_match = 2
+
+         | 1   | 6   | 1
+         | 2   | 5   | 3
+         | 3   | 8   | 8
+         | 4   | _   | _
+
+         next() all the queries that sit on the current cursor
+         find again the query with the smallest doc id
+         try to skip to it (which takes minimum_should_match into account)
+         advance the smallest doc id if it fails minimum_should_match check
+         profit
+         */
+        for (auto query : queries) {
+            if (query->current() == cursor)
+                query->next();
+        }
+        while (true) {
+            Advancable *min = query_with_smallest_doc_id();
+            if (min == NULL) {
+                cursor = NO_MORE;
+                break;
+            } else {
+                cursor = skip_to(min->current());
+                if (cursor != NO_MORE)
+                    break;
+                if (min->next() == NO_MORE) {
+                    cursor = NO_MORE;
+                    break;
+                }
+            }
+        }
+        return cursor;
+    }
+
+    u32 count(void) const {
+        if (queries.size() == 0)
+            return 0;
+        return INT_MAX;
+    }
+
+    void reset(void) {
+        for (auto query : queries)
+            query->reset();
+        Advancable *min = query_with_smallest_doc_id();
+        if (min != NULL)
+            cursor = min->current();
         else
             cursor = NO_MORE;
     }
