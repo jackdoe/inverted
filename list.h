@@ -66,13 +66,10 @@ class StoredList {
 public:
     u32 size;
     int fd;
-    s32 cursor;
-    std::string term;
     struct stored *stored;
     StoredList(const char *fn, int initial_payload_size = 4) {
         assert(fn != NULL);
         assert(has_suffix(fn,".idx") == true);
-        term = std::string(fn);
 
         if ((fd = open(fn, O_RDWR|O_CREAT|O_CLOEXEC,S_IRUSR|S_IWUSR)) == -1)
             saypx("open");
@@ -93,7 +90,6 @@ public:
         _mmap(st.st_size);
         // D("found data with %d payload size, entry size: %lu",stored_payload_size(),sizeof_entry());
         assert(initial_payload_size == stored_payload_size());
-        reset();
     }
     ~StoredList() {
         _munmap();
@@ -106,7 +102,7 @@ public:
     u32 count(void) const {
         return stored->stats.n;
     }
-    s32 skip_to(s32 id) {
+    s32 skip_to(s32 id,s32 cursor) {
         // try the current position
         // then the next position
         // and then the requested positon
@@ -235,9 +231,6 @@ public:
     size_t sizeof_entry(int n = 1) {
         return (sizeof(struct entry) + stored_payload_size()) * n;
     }
-    struct entry *entry_at(void) {
-        return entry_at(cursor,0);
-    }
     struct entry *entry_at(u32 pos,s32 expect = 0) {
         if (pos >= count())
             return NULL;
@@ -245,20 +238,6 @@ public:
         if (expect > 0 && e->id != expect)
             return NULL;
         return e;
-    }
-    s32 current(void) {
-        struct entry *e = entry_at(cursor);
-        if (e != NULL)
-            return e->id;
-        return NO_MORE;
-    }
-    s32 next(void) {
-        // hack: cursor holds the current index, not the current doc
-        cursor++;
-        return current();
-    }
-    void reset(void) {
-        cursor = 0;
     }
 };
 
@@ -288,19 +267,21 @@ bool scored_cmp (const scored a, const scored b) {
 
 class TermQuery : public Advancable {
 public:
+    s32 cursor;
     StoredList *list;
     TermQuery(StoredList *list_) : Advancable() {
         list = list_;
         reset();
     }
     s32 skip_to(s32 id) {
-        return list->skip_to(id);
+        cursor = list->skip_to(id,cursor);
+        return cursor;
     }
     u32 count(void) const {
         return list->count();
     }
     bool score(struct scored *s, StoredList &documents) {
-        struct entry *e = list->entry_at();
+        struct entry *e = list->entry_at(cursor);
         if (e == NULL)
             return false;
         s->id = e->id;
@@ -311,15 +292,22 @@ public:
         }
         return true;
     }
+
     s32 current(void) {
-        return list->current();
+        struct entry *e = list->entry_at(cursor);
+        if (e != NULL)
+            return e->id;
+        return NO_MORE;
     }
     s32 next(void) {
-        return list->next();
+        // hack: cursor holds the current index, not the current doc
+        cursor++;
+        return current();
     }
     void reset(void) {
-        list->reset();
+        cursor = 0;
     }
+
 };
 
 class BoolMustQuery : public Advancable {
