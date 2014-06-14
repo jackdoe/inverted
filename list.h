@@ -69,9 +69,9 @@ public:
     struct stored *stored;
     StoredList(const char *fn, int initial_payload_size = 4) {
         assert(fn != NULL);
-        assert(has_suffix(fn,".idx") == true);
+        assert(has_suffix(fn, ".idx") == true);
 
-        if ((fd = open(fn, O_RDWR|O_CREAT|O_CLOEXEC,S_IRUSR|S_IWUSR)) == -1)
+        if ((fd = open(fn, O_RDWR|O_CREAT|O_CLOEXEC, S_IRUSR|S_IWUSR)) == -1)
             saypx("open");
 
         struct stat st;
@@ -91,29 +91,33 @@ public:
         // D("found data with %d payload size, entry size: %lu",stored_payload_size(),sizeof_entry());
         assert(initial_payload_size == stored_payload_size());
     }
+
     ~StoredList() {
         _munmap();
         close(fd);
     }
+
     void sync(void) {
         if (msync(stored,size,MS_SYNC) == -1)
             saypx("msync");
     }
+
     u32 count(void) const {
         return stored->stats.n;
     }
+
     s32 skip_to(s32 id,s32 cursor) {
         // try the current position
         // then the next position
         // and then the requested positon
-        struct entry *e = entry_at(cursor,id);
+        struct entry *e = entry_at(cursor, id);
         if (e == NULL) {
-            e = entry_at(cursor + 1,id);
+            e = entry_at(cursor + 1, id);
             if (e != NULL) {
                 cursor += 1;
             } else {
                 int found;
-                u32 where = closest(id,&found,cursor + 1);
+                u32 where = closest(id, &found, cursor + 1);
                 if (found)
                     cursor = where;
                 else
@@ -122,12 +126,13 @@ public:
         }
         return cursor;
     }
-    u32 closest(s32 id, int *found,u32 start = 0) {
+
+    u32 closest(s32 id, int *found, u32 start = 0) {
         u32 end = stored->stats.n;
         u32 mid = end;
         while (start < end) {
             mid = start + (end - start) / 2;
-            struct entry *e = entry_at(mid,0);
+            struct entry *e = entry_at(mid, 0);
             if (e->id < id) {
                 start = mid + 1;
             } else if (e->id > id) {
@@ -140,17 +145,20 @@ public:
         *found = 0;
         return start;
     }
+
     void insert(s32 id, u32 payload = 0) {
-        insert(id,(u8 *)&payload,sizeof(payload));
+        insert(id,(u8 *)&payload, sizeof(payload));
     }
+
     void insert(s32 id, float payload) {
-        insert(id,(u8 *)&payload,sizeof(payload));
+        insert(id,(u8 *)&payload, sizeof(payload));
     }
+
     void insert(s32 id, u8 *buf, u8 len) {
         assert(id >= 0);
         assert(len <= stored_payload_size());
         int found;
-        u32 where = closest(id,&found);
+        u32 where = closest(id, &found);
         struct entry *e;
         if (!found) {
             int n = stored->stats.n;
@@ -158,7 +166,7 @@ public:
             stored->stats.n++;
             size_t bytes = sizeof_entry(n - where);
             if (bytes > 0)
-                memmove((u8 *) entry_at(where + 1), (u8 *)entry_at(where),bytes);
+                memmove((u8 *) entry_at(where + 1), (u8 *)entry_at(where), bytes);
             e = entry_at(where);
             e->id = id;
             e->freq = 0;
@@ -167,32 +175,34 @@ public:
         } else {
             e = entry_at(where);
         }
-        bcopy(buf,&e->payload[0] ,len);
+        bcopy(buf, &e->payload[0], len);
         if (e->freq < 255)
             e->freq++;
     }
+
     int remove(s32 id) {
         assert(id >= 0);
         int found;
-        u32 where = closest(id,&found);
+        u32 where = closest(id, &found);
         if (found) {
             int n = stored->stats.n;
             size_t bytes = sizeof_entry(n - where - 1);
             if (bytes > 0)
-                memmove((u8 *) entry_at(where), (u8 *)entry_at(where + 1),bytes);
+                memmove((u8 *) entry_at(where), (u8 *)entry_at(where + 1), bytes);
             stored->stats.n--;
         }
         return found;
     }
+
     void dump(void) {
         struct entry *e;
         int i,j = 0;
         for (i = 0; i < count(); i++){
-            e = entry_at(i,0);
-            printf("pos: %d; id: %d; freq: %d; payload:\n\t",i,e->id,e->freq);
+            e = entry_at(i, 0);
+            printf("pos: %d; id: %d; freq: %d; payload:\n\t", i, e->id, e->freq);
             printf("[");
             for (j = 0; j < stored_payload_size(); j++) {
-                printf(" 0x%x  ",e->payload[j]);
+                printf(" 0x%x  ", e->payload[j]);
             }
             printf("]");
             printf("\n");
@@ -220,7 +230,7 @@ public:
         if (asize + n >= size) {
             n += asize + 1000 * sizeof_entry();
             _munmap();
-            if (ftruncate(fd,n) == -1)
+            if (ftruncate(fd, n) == -1)
                 saypx("ftruncate");
             _mmap(n);
         }
@@ -231,7 +241,7 @@ public:
     size_t sizeof_entry(int n = 1) {
         return (sizeof(struct entry) + stored_payload_size()) * n;
     }
-    struct entry *entry_at(u32 pos,s32 expect = 0) {
+    struct entry *entry_at(u32 pos, s32 expect = 0) {
         if (pos >= count())
             return NULL;
         struct entry *e = (struct entry *) (stored->begin + (sizeof_entry(pos)));
@@ -245,7 +255,7 @@ class Advancable {
 public:
     virtual s32 skip_to(s32 id) = 0;
     virtual u32 count(void) const = 0;
-    virtual bool score(struct scored *scored,StoredList &documents) = 0;
+    virtual bool score(struct scored *scored, StoredList &documents) = 0;
     virtual s32 next(void) = 0;
     virtual s32 current(void) = 0;
     virtual void reset(void) = 0;
@@ -280,6 +290,7 @@ public:
     u32 count(void) const {
         return list->count();
     }
+
     bool score(struct scored *s, StoredList &documents) {
         struct entry *e = list->entry_at(cursor);
         if (e == NULL)
@@ -307,7 +318,6 @@ public:
     void reset(void) {
         cursor = 0;
     }
-
 };
 
 class BoolMustQuery : public Advancable {
@@ -319,7 +329,7 @@ public:
     }
     void add(Advancable *q) {
         queries.push_back(q);
-        std::sort(queries.begin(), queries.end(),smallest);
+        std::sort(queries.begin(), queries.end(), smallest);
         reset();
     }
     s32 skip_to(s32 id) {
@@ -338,7 +348,7 @@ public:
         if (skip_to(cursor) == NO_MORE)
             return false;
         for (auto query : queries)
-            query->score(s,documents);
+            query->score(s, documents);
         return true;
     }
     s32 current(void) {
@@ -379,7 +389,7 @@ class Collector {
 public:
     Advancable &query;
     Collector(Advancable &query_) : query(query_) {}
-    std::vector<scored> topN(int n_items,StoredList &documents) {
+    std::vector<scored> topN(int n_items, StoredList &documents) {
         query.reset();
         std::vector<scored> items;
         struct scored scored,min_item;
