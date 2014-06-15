@@ -255,7 +255,7 @@ class Advancable {
 public:
     virtual s32 skip_to(s32 id) = 0;
     virtual u32 count(void) const = 0;
-    virtual bool score(struct scored *scored, StoredList &documents) = 0;
+    virtual bool score(struct scored *scored, StoredList *documents) = 0;
     virtual s32 next(void) = 0;
     virtual s32 current(void) = 0;
     virtual void reset(void) = 0;
@@ -291,15 +291,17 @@ public:
         return list->count();
     }
 
-    bool score(struct scored *s, StoredList &documents) {
+    bool score(struct scored *s, StoredList *documents) {
         struct entry *e = list->entry_at(cursor);
         if (e == NULL)
             return false;
         s->id = e->id;
         s->score += 1;
-        struct entry *doc = documents.entry_at(e->id);
-        if (doc != NULL) {
-            s->score += *((float *)doc->payload);
+        if (documents) {
+            struct entry *doc = documents->entry_at(e->id);
+            if (doc != NULL) {
+                s->score += *((float *)doc->payload);
+            }
         }
         return true;
     }
@@ -348,7 +350,7 @@ public:
         return cursor;
     }
 
-    bool score(struct scored *s, StoredList &documents) {
+    bool score(struct scored *s, StoredList *documents) {
         // position everything to the id or fail
         if (skip_to(cursor) == NO_MORE)
             return false;
@@ -425,7 +427,7 @@ public:
         return cursor;
     }
 
-    bool score(struct scored *s, StoredList &documents) {
+    bool score(struct scored *s, StoredList *documents) {
         if (skip_to(cursor) == NO_MORE)
             return false;
         for (auto query : queries) {
@@ -504,39 +506,34 @@ public:
     }
 };
 
-class Collector {
-public:
-    Advancable &query;
-    Collector(Advancable &query_) : query(query_) {}
-    std::vector<scored> topN(int n_items, StoredList &documents) {
-        query.reset();
-        std::vector<scored> items;
-        struct scored scored,min_item;
-        min_item.id = 0;
-        min_item.score = 0;
-        bool is_heap = false;
-        while (query.score(&scored,documents)) {
-            if (scored.score > min_item.score) {
-                if (items.size() >= n_items) {
-                    items.push_back(scored);
-                    if (!is_heap) {
-                        is_heap = true;
-                        make_heap(items.begin(), items.end(), scored_cmp);
-                    } else {
-                        push_heap(items.begin(), items.end(), scored_cmp);
-                    }
-                    pop_heap(items.begin(), items.end(), scored_cmp);
-                    items.pop_back();
-                    min_item = items.front();
+std::vector<scored> topN(Advancable *query,int n_items, StoredList *documents) {
+    query->reset();
+    std::vector<scored> items;
+    struct scored scored,min_item;
+    min_item.id = 0;
+    min_item.score = 0;
+    bool is_heap = false;
+    while (query->score(&scored,documents)) {
+        if (scored.score > min_item.score) {
+            if (items.size() >= n_items) {
+                items.push_back(scored);
+                if (!is_heap) {
+                    is_heap = true;
+                    make_heap(items.begin(), items.end(), scored_cmp);
                 } else {
-                    is_heap = false;
-                    items.push_back(scored);
+                    push_heap(items.begin(), items.end(), scored_cmp);
                 }
+                pop_heap(items.begin(), items.end(), scored_cmp);
+                items.pop_back();
+                min_item = items.front();
+            } else {
+                is_heap = false;
+                items.push_back(scored);
             }
-            scored.score = 0;
-            query.next();
         }
-        std::sort(items.begin(), items.end(), scored_cmp);
-        return items;
+        scored.score = 0;
+        query->next();
     }
-};
+    std::sort(items.begin(), items.end(), scored_cmp);
+    return items;
+}

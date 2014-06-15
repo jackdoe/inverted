@@ -38,8 +38,7 @@ int main(void) {
     q_new_york_state.add(&q_new_york);
     q_new_york_state.add(&q_state);
     printf("must: new york state:\n");
-    Collector c(q_new_york_state);
-    for (auto s : c.topN(3,documents)) {
+    for (auto s : topN(&q_new_york_state,3,&documents)) {
         printf("doc: %d, score: %f\n",s.id,s.score);
     }
 
@@ -48,8 +47,7 @@ int main(void) {
     q_should_new_york_state.add(&q_state);
     q_should_new_york_state.add(&q_york);
     printf("should: new york state (msm=2):\n");
-    Collector c_state(q_should_new_york_state);
-    for (auto s : c_state.topN(10,documents)) {
+    for (auto s : topN(&q_should_new_york_state,10,&documents)) {
         printf("doc: %d, score: %f\n",s.id,s.score);
     }
 }
