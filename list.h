@@ -266,14 +266,18 @@ public:
 
     s32 skip_to(s32 id) {
         if (index == NO_MORE)
-            return index;
+            return NO_MORE;
+        if (current() == id)
+            return id;
+
         u32 end = count();
         u32 mid = end;
         u32 start = index;
 
-        // [ 1,2,3,4 ]
-        // [ 1,5,6,7 ]
-        // [ 4,5,8,9 ]
+        //     V
+        // [ 4,5,8,9,10 ]
+        //       V
+        // [ 4,5,8,9,10 ]
         while (start < end) {
             mid = start + ((end - start) / 2);
             struct entry *e = list->entry_at(mid, 0);
