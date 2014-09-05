@@ -361,7 +361,7 @@ public:
             id = lead->skip_to(id);
             for (i = 1; i < queries.size(); i++) {
                 auto query = queries[i];
-                if (query->current() < id) {
+                if (query->current() != id) {
                     query->skip_to(id);
                     if (query->current() > id) {
                         id = query->current();
