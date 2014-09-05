@@ -106,30 +106,10 @@ public:
         return stored->stats.n;
     }
 
-    s32 skip_to(s32 id,s32 cursor) {
-        // try the current position
-        // then the next position
-        // and then the requested positon
-        struct entry *e = entry_at(cursor, id);
-        if (e == NULL) {
-            e = entry_at(cursor + 1, id);
-            if (e != NULL) {
-                cursor += 1;
-            } else {
-                int found;
-                u32 where = closest(id, &found, cursor + 1);
-                if (found)
-                    cursor = where;
-                else
-                    return NO_MORE;
-            }
-        }
-        return cursor;
-    }
-
     u32 closest(s32 id, int *found, u32 start = 0) {
         u32 end = stored->stats.n;
         u32 mid = end;
+
         while (start < end) {
             mid = start + (end - start) / 2;
             struct entry *e = entry_at(mid, 0);
@@ -277,22 +257,48 @@ bool scored_cmp (const scored a, const scored b) {
 
 class TermQuery : public Advancable {
 public:
-    s32 cursor;
+    s32 index;
     StoredList *list;
     TermQuery(StoredList *list_) : Advancable() {
         list = list_;
         reset();
     }
+
     s32 skip_to(s32 id) {
-        cursor = list->skip_to(id,cursor);
-        return cursor;
+        if (index == NO_MORE)
+            return index;
+        u32 end = count();
+        u32 mid = end;
+        u32 start = index;
+
+        // [ 1,2,3,4 ]
+        // [ 1,5,6,7 ]
+        // [ 4,5,8,9 ]
+        while (start < end) {
+            mid = start + ((end - start) / 2);
+            struct entry *e = list->entry_at(mid, 0);
+            if (e->id < id) {
+                start = mid + 1;
+            } else if (e->id > id) {
+                end = mid;
+            } else {
+                start = mid;
+                break;
+            }
+        }
+        if (start >= end)
+            index = NO_MORE;
+        else
+            index = start;
+        return current();
     }
+
     u32 count(void) const {
         return list->count();
     }
 
     bool score(struct scored *s, StoredList *documents) {
-        struct entry *e = list->entry_at(cursor);
+        struct entry *e = list->entry_at(index);
         if (e == NULL)
             return false;
         s->id = e->id;
@@ -307,28 +313,30 @@ public:
     }
 
     s32 current(void) {
-        struct entry *e = list->entry_at(cursor);
+        struct entry *e = list->entry_at(index);
         if (e != NULL)
             return e->id;
         return NO_MORE;
     }
 
     s32 next(void) {
-        // hack: cursor holds the current index, not the current doc
-        cursor++;
+        index++;
         return current();
     }
 
     void reset(void) {
-        cursor = 0;
+        index = 0;
     }
 };
+class BoolQuery : public Advancable {
+    virtual void add(Advancable *q) = 0;
+};
 
-class BoolMustQuery : public Advancable {
+class BoolMustQuery : public BoolQuery {
 public:
     s32 cursor;
     std::vector<Advancable *> queries;
-    BoolMustQuery() : Advancable() {
+    BoolMustQuery() : BoolQuery() {
         cursor = NO_MORE;
     }
 
@@ -341,10 +349,23 @@ public:
     s32 skip_to(s32 id) {
         if (cursor == NO_MORE)
             return NO_MORE;
-        for (auto query : queries) {
-            if (query->skip_to(id) == NO_MORE) {
-                return NO_MORE;
+
+        int i;
+        auto lead = queries[0];
+        for (;;) {
+        again:
+            id = lead->skip_to(id);
+            for (i = 1; i < queries.size(); i++) {
+                auto query = queries[i];
+                if (query->current() < id) {
+                    query->skip_to(id);
+                    if (query->current() > id) {
+                        id = query->current();
+                        goto again;
+                    }
+                }
             }
+            break;
         }
         cursor = id;
         return cursor;
@@ -364,19 +385,7 @@ public:
     }
 
     s32 next(void) {
-        if (cursor == NO_MORE)
-            return NO_MORE;
-        cursor = queries[0]->next();
-        while (cursor != NO_MORE) {
-            for (auto query : queries) {
-                if (query->skip_to(cursor) == NO_MORE)
-                    goto next;
-            }
-            break;
-        next:
-            cursor = queries[0]->next();
-        }
-        return cursor;
+        return skip_to(queries[0]->next());
     }
 
     u32 count(void) const {
@@ -390,117 +399,6 @@ public:
             query->reset();
         if (queries.size() > 0)
             cursor = queries[0]->current();
-        else
-            cursor = NO_MORE;
-    }
-};
-
-class BoolShouldQuery : public Advancable {
-public:
-    s32 cursor;
-    std::vector<Advancable *> queries;
-    int minimum_should_match;
-    BoolShouldQuery(int minimum_should_match_) : Advancable() {
-        cursor = NO_MORE;
-        minimum_should_match = minimum_should_match_;
-    }
-
-    void add(Advancable *q) {
-        queries.push_back(q);
-        std::sort(queries.begin(), queries.end(), largest);
-        reset();
-    }
-
-    s32 skip_to(s32 id) {
-        if (cursor == NO_MORE)
-            return NO_MORE;
-        int need = minimum_should_match;
-        for (auto query : queries) {
-            if (query->skip_to(id) != NO_MORE) {
-                need--;
-            }
-        }
-        if (need > 0)
-            cursor = NO_MORE;
-        else
-            cursor = id;
-        return cursor;
-    }
-
-    bool score(struct scored *s, StoredList *documents) {
-        if (skip_to(cursor) == NO_MORE)
-            return false;
-        for (auto query : queries) {
-            if (query->current() == cursor) {
-                query->score(s, documents);
-            }
-        }
-        return true;
-    }
-
-    s32 current(void) {
-        return cursor;
-    }
-    Advancable *query_with_smallest_doc_id() {
-        Advancable *min = NULL;
-        for (auto query : queries) {
-            if (min == NULL || (query->current() != NO_MORE && min->current() > query->current()))
-                min = query;
-        }
-        return min;
-    }
-    s32 next(void) {
-        if (cursor == NO_MORE)
-            return NO_MORE;
-        /*
-
-         minimum_should_match = 2
-
-         | 1   | 6   | 1
-         | 2   | 5   | 3
-         | 3   | 8   | 8
-         | 4   | _   | _
-
-         next() all the queries that sit on the current cursor
-         find again the query with the smallest doc id
-         try to skip to it (which takes minimum_should_match into account)
-         advance the smallest doc id if it fails minimum_should_match check
-         profit
-         */
-        for (auto query : queries) {
-            if (query->current() == cursor)
-                query->next();
-        }
-        while (true) {
-            Advancable *min = query_with_smallest_doc_id();
-            if (min == NULL) {
-                cursor = NO_MORE;
-                break;
-            } else {
-                cursor = skip_to(min->current());
-                if (cursor != NO_MORE)
-                    break;
-                if (min->next() == NO_MORE) {
-                    cursor = NO_MORE;
-                    break;
-                }
-            }
-        }
-        return cursor;
-    }
-
-    u32 count(void) const {
-        if (queries.size() == 0)
-            return 0;
-        return INT_MAX;
-    }
-
-    void reset(void) {
-        for (auto query : queries)
-            query->reset();
-        Advancable *min = query_with_smallest_doc_id();
-        if (min != NULL)
-            cursor = min->current();
         else
             cursor = NO_MORE;
     }

@@ -41,13 +41,4 @@ int main(void) {
     for (auto s : topN(&q_new_york_state,3,&documents)) {
         printf("doc: %d, score: %f\n",s.id,s.score);
     }
-
-    BoolShouldQuery q_should_new_york_state(2);
-    q_should_new_york_state.add(&q_new);
-    q_should_new_york_state.add(&q_state);
-    q_should_new_york_state.add(&q_york);
-    printf("should: new york state (msm=2):\n");
-    for (auto s : topN(&q_should_new_york_state,10,&documents)) {
-        printf("doc: %d, score: %f\n",s.id,s.score);
-    }
 }
