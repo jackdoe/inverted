@@ -14,11 +14,11 @@
 #include <iostream>
 #define FORMAT(fmt,arg...) fmt " [%s()]\n",##arg,__func__
 #define D(fmt,arg...) printf(FORMAT(fmt,##arg))
-#define sayx(fmt,arg...)                            \
-do {                                                \
-    D(FORMAT(fmt,##arg));                           \
-    exit(EXIT_FAILURE);                             \
-} while(0)
+#define sayx(fmt,arg...)                        \
+    do {                                        \
+        D(FORMAT(fmt,##arg));                   \
+        exit(EXIT_FAILURE);                     \
+    } while(0)
 #define saypx(fmt,arg...) sayx(fmt " { %s(%d) }",##arg,errno ? strerror(errno) : "undefined error",errno);
 #define NO_MORE -1
 typedef uint32_t u32;
@@ -269,7 +269,10 @@ public:
             return NO_MORE;
         if (current() == id)
             return id;
-
+        if (id == NO_MORE) {
+            index = NO_MORE;
+            return id;
+        }
         u32 end = count();
         u32 mid = end;
         u32 start = index;
@@ -353,7 +356,6 @@ public:
     s32 skip_to(s32 id) {
         if (cursor == NO_MORE)
             return NO_MORE;
-
         int i;
         auto lead = queries[0];
         for (;;) {
