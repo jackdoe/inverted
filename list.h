@@ -356,6 +356,8 @@ public:
     s32 skip_to(s32 id) {
         if (cursor == NO_MORE)
             return NO_MORE;
+        if (current() == id)
+            return id;
         int i;
         auto lead = queries[0];
         for (;;) {
