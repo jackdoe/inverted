@@ -1,0 +1,5 @@
+StoredList *       O_OBJECT
+TermQuery *       O_OBJECT
+BoolMustQuery *       O_OBJECT
+Advancable *       O_OBJECT
+u8 T_U_CHAR

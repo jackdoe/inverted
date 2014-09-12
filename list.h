@@ -12,6 +12,9 @@
 #include <string>
 #include <algorithm>
 #include <iostream>
+#include <sys/stat.h>
+
+#ifndef sayx
 #define FORMAT(fmt,arg...) fmt " [%s()]\n",##arg,__func__
 #define D(fmt,arg...) printf(FORMAT(fmt,##arg))
 #define sayx(fmt,arg...)                        \
@@ -19,7 +22,10 @@
         D(FORMAT(fmt,##arg));                   \
         exit(EXIT_FAILURE);                     \
     } while(0)
+#endif
+
 #define saypx(fmt,arg...) sayx(fmt " { %s(%d) }",##arg,errno ? strerror(errno) : "undefined error",errno);
+
 #define NO_MORE -1
 typedef uint32_t u32;
 typedef uint64_t u64;
@@ -27,6 +33,7 @@ typedef uint16_t u16;
 typedef uint8_t  u8;
 typedef int32_t  s32;
 typedef int64_t  s64;
+
 struct entry {
     s32 id;
     u8 freq;
@@ -62,16 +69,37 @@ bool has_suffix(const char *s, const char *suffix) {
     return true;
 }
 
+u32 jenkins_one_at_a_time_hash(const char *key, size_t len) {
+    u32 hash, i;
+    for(hash = i = 0; i < len; ++i) {
+        hash += key[i];
+        hash += (hash << 10);
+        hash ^= (hash >> 6);
+    }
+    hash += (hash << 3);
+    hash ^= (hash >> 11);
+    hash += (hash << 15);
+    return hash;
+}
+
 class StoredList {
 public:
     u32 size;
     int fd;
     struct stored *stored;
-    StoredList(const char *fn, int initial_payload_size = 4) {
+    char path[PATH_MAX];
+    StoredList(const char *fn, const char *root = "/tmp", int initial_payload_size = 4, int buckets = 32) {
         assert(fn != NULL);
         assert(has_suffix(fn, ".idx") == true);
+        u32 bucket = jenkins_one_at_a_time_hash(fn,strlen(fn)) % buckets;
+        u32 off = snprintf(path,PATH_MAX,"%s/%d",root,bucket);
+        if (off >= PATH_MAX)
+            saypx("filename > %d [ truncated: %s ]",PATH_MAX,path);
+        mkdir(path,0755);
+        if (snprintf(path + off,PATH_MAX,"/%s",fn) >= PATH_MAX)
+            saypx("filename > %d [ truncated: %s ]",PATH_MAX,path);
 
-        if ((fd = open(fn, O_RDWR|O_CREAT|O_CLOEXEC, S_IRUSR|S_IWUSR)) == -1)
+        if ((fd = open(path, O_RDWR|O_CREAT|O_CLOEXEC, S_IRUSR|S_IWUSR)) == -1)
             saypx("open");
 
         struct stat st;
@@ -80,7 +108,6 @@ public:
 
         struct stored s;
         if (st.st_size < sizeof(s)) {
-            // zero init
             bzero(&s,sizeof(s));
             s.stats.max_payload_size = initial_payload_size;
             if (write(fd,&s,sizeof(s)) != sizeof(s))
@@ -100,6 +127,10 @@ public:
     void sync(void) {
         if (msync(stored,size,MS_SYNC) == -1)
             saypx("msync");
+    }
+
+    char *get_path(void) {
+        return path;
     }
 
     u32 count(void) const {
@@ -231,15 +262,17 @@ public:
     }
 };
 
+
 class Advancable {
 public:
     virtual s32 skip_to(s32 id) = 0;
     virtual u32 count(void) const = 0;
-    virtual bool score(struct scored *scored, StoredList *documents) = 0;
+    virtual bool score(struct scored *scored) = 0;
     virtual s32 next(void) = 0;
     virtual s32 current(void) = 0;
     virtual void reset(void) = 0;
 };
+
 
 bool smallest (const Advancable *a, const Advancable *b) {
     return a->count() < b->count();
@@ -254,7 +287,6 @@ bool scored_cmp (const scored a, const scored b) {
     if (a.score < b.score) return false;
     return a.id < b.id;
 }
-
 class TermQuery : public Advancable {
 public:
     s32 index;
@@ -304,18 +336,12 @@ public:
         return list->count();
     }
 
-    bool score(struct scored *s, StoredList *documents) {
+    bool score(struct scored *s) {
         struct entry *e = list->entry_at(index);
         if (e == NULL)
             return false;
         s->id = e->id;
         s->score += 1;
-        if (documents) {
-            struct entry *doc = documents->entry_at(e->id);
-            if (doc != NULL) {
-                s->score += *((float *)doc->payload);
-            }
-        }
         return true;
     }
 
@@ -348,6 +374,7 @@ public:
     }
 
     void add(Advancable *q) {
+        assert(q != this);
         queries.push_back(q);
         std::sort(queries.begin(), queries.end(), smallest);
         reset();
@@ -356,8 +383,6 @@ public:
     s32 skip_to(s32 id) {
         if (cursor == NO_MORE)
             return NO_MORE;
-        if (current() == id)
-            return id;
         int i;
         auto lead = queries[0];
         for (;;) {
@@ -379,12 +404,15 @@ public:
         return cursor;
     }
 
-    bool score(struct scored *s, StoredList *documents) {
+    bool score(struct scored *s) {
         // position everything to the id or fail
         if (skip_to(cursor) == NO_MORE)
             return false;
-        for (auto query : queries)
-            query->score(s, documents);
+
+        for (auto query : queries) {
+            assert(query->current() == cursor);
+            query->score(s);
+        }
         return true;
     }
 
@@ -403,8 +431,9 @@ public:
     }
 
     void reset(void) {
-        for (auto query : queries)
+        for (auto query : queries) {
             query->reset();
+        }
         if (queries.size() > 0)
             cursor = queries[0]->current();
         else
@@ -412,14 +441,19 @@ public:
     }
 };
 
-std::vector<scored> topN(Advancable *query,int n_items, StoredList *documents) {
+std::vector<scored> __topN(Advancable *query,int n_items) {
+    assert(query != NULL);
+    assert(n_items > 0);
+
     query->reset();
     std::vector<scored> items;
+
     struct scored scored,min_item;
     min_item.id = 0;
     min_item.score = 0;
     bool is_heap = false;
-    while (query->score(&scored,documents)) {
+
+    while (query->score(&scored)) {
         if (scored.score > min_item.score) {
             if (items.size() >= n_items) {
                 items.push_back(scored);

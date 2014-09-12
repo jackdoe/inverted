@@ -1,0 +1,5 @@
+*.c
+*.o
+blib/
+Makefile
+Makefile.old

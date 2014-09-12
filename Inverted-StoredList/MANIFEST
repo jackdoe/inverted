@@ -1,0 +1,8 @@
+Changes
+Makefile.PL
+MANIFEST
+ppport.h
+README
+StoredList.xs
+t/Inverted-StoredList.t
+lib/Inverted/StoredList.pm

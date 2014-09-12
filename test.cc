@@ -19,6 +19,7 @@ int main(void) {
     t_new.insert(4);
     t_new.insert(5);
     t_new.remove(4);
+
     StoredList t_york("_york.idx");
     t_york.insert(1);
     t_york.insert(2);
@@ -38,7 +39,7 @@ int main(void) {
     q_new_york_state.add(&q_new_york);
     q_new_york_state.add(&q_state);
     printf("must: new york state:\n");
-    for (auto s : topN(&q_new_york_state,3,&documents)) {
+    for (auto s : __topN(&q_new_york_state,3)) {
         printf("doc: %d, score: %f\n",s.id,s.score);
     }
 }
