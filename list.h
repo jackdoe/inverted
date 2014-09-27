@@ -329,8 +329,9 @@ public:
             u32 mid = start + ((end - start) / 2);
             struct entry *e = list->entry_at(mid, 0);
             if (e->id == target) {
-                start = mid;
-                break;
+                index = mid;
+                doc_id = target;
+                return doc_id;
             }
             if (e->id < target)
                 start = mid + 1;
