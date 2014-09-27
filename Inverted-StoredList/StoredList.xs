@@ -2,7 +2,7 @@
 #include "../list.h"
 extern "C" {
 #endif
-
+#include <time.h>
 #include "EXTERN.h"
 #include "perl.h"
 #include "XSUB.h"
@@ -82,16 +82,26 @@ const char *
 BoolShouldQuery::to_string();
 
 MODULE = Inverted::StoredList		PACKAGE = Inverted::StoredList::Search
-AV *topN(Advancable *query, int n)
+HV *topN(Advancable *query, int n)
     CODE:
-        RETVAL = newAV();
+        clock_t clock_start=clock();
+
+
+
+        int total = 0;
+        RETVAL = newHV();
         sv_2mortal( (SV*)RETVAL );
-        for (auto s : __topN(query,n)) {
+        AV *results = newAV();
+        for (auto s : __topN(query,n,&total)) {
             HV *rh;
             rh = (HV *)sv_2mortal((SV *)newHV());
             hv_store(rh,"__score",7,newSVnv(s.score),0);
             hv_store(rh,"__id",4,newSVnv(s.id),0);
-            av_push(RETVAL, newRV((SV *)rh));
+            av_push(results, newRV((SV *)rh));
         }
+        hv_store(RETVAL,"total",5,newSVnv(total),0);
+        hv_store(RETVAL,"hits",4,newRV((SV *) results),0);
+        double took = ((double)(clock()- clock_start)/CLOCKS_PER_SEC) * 1000;
+        hv_store(RETVAL,"took",4,newSVnv(took),0);
     OUTPUT:
         RETVAL

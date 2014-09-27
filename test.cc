@@ -39,7 +39,7 @@ int main(void) {
     q_new_york_state.add(&q_new_york);
     q_new_york_state.add(&q_state);
     printf("must: new york state:\n");
-    for (auto s : __topN(&q_new_york_state,3)) {
+    for (auto s : __topN(&q_new_york_state,3,NULL)) {
         printf("doc: %d, score: %f\n",s.id,s.score);
     }
     printf("%s\n",q_new_york_state.to_string());

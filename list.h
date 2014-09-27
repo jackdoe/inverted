@@ -523,13 +523,12 @@ public:
 };
 
 
-std::vector<scored> __topN(Advancable *query,int n_items) {
+std::vector<scored> __topN(Advancable *query,int n_items,int *total) {
     assert(query != NULL);
     assert(n_items > 0);
 
     query->reset();
     std::vector<scored> items;
-
     struct scored scored,min_item;
     min_item.id = 0;
     min_item.score = 0;
@@ -554,6 +553,8 @@ std::vector<scored> __topN(Advancable *query,int n_items) {
                 items.push_back(scored);
             }
         }
+        if (likely(total))
+            (*total)++;
         scored.score = 0;
     }
     std::sort(items.begin(), items.end(), scored_cmp);

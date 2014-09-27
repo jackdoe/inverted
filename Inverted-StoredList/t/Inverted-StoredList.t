@@ -8,7 +8,7 @@
 use strict;
 use warnings;
 use Data::Dumper;
-use Test::More tests => 7;
+use Test::More tests => 8;
 BEGIN { use_ok('Inverted::StoredList') };
 
 my $n = Inverted::StoredList::MMAP->new("new_york.idx","/tmp/",4,32);
@@ -22,7 +22,7 @@ $n->insert(3);
 my $tq = Inverted::StoredList::TermQuery->new($n);
 like ($n->get_path(),qr/^\/tmp\/+\d+\/+new_york.idx$/);
 my $top = Inverted::StoredList::Search::topN($tq,5);
-is (scalar(@{ $top }), 3);
+is (scalar(@{ $top->{hits} }), 3);
 
 my $second = Inverted::StoredList::MMAP->new("state.idx","/tmp/",4,32);
 $second->insert(2);
@@ -34,8 +34,9 @@ $bq->add($secondq);
 
 my $tq2 = Inverted::StoredList::TermQuery->new($second);
 $top = Inverted::StoredList::Search::topN($bq,5);
-is (scalar(@{ $top }), 3);
-is ($top->[0]->{__id}, 2);
+is (scalar(@{ $top->{hits} }), 3);
+is ($top->{total}, 3);
+is ($top->{hits}->[0]->{__id}, 2);
 
 unlink ($n->get_path());
 unlink ($second->get_path());
