@@ -93,7 +93,7 @@ public:
         assert(fn != NULL);
         assert(has_suffix(fn, ".idx") == true);
         u32 bucket = jenkins_one_at_a_time_hash(fn,strlen(fn)) % buckets;
-        u32 off = snprintf(path,PATH_MAX,"%s/%d",root,bucket);
+        u32 off = snprintf(path,PATH_MAX,"%s/%02d",root,bucket);
         if (off >= PATH_MAX)
             saypx("filename > %d [ truncated: %s ]",PATH_MAX,path);
         mkdir(path,0755);
@@ -167,7 +167,6 @@ public:
     }
 
     void insert(s32 id, u8 *buf, u8 len) {
-        assert(id >= 0);
         assert(len <= stored_payload_size());
         int found;
         u32 where = closest(id, &found);
@@ -272,6 +271,7 @@ public:
     virtual void score(struct scored *scored) = 0;
     virtual s32 next(void) = 0;
     virtual void reset(void) = 0;
+    virtual const char *to_string(void) = 0;
 };
 
 
@@ -293,10 +293,16 @@ public:
     s32 index;
     s32 doc_id;
     StoredList *list;
+    char sbuf[PATH_MAX];
     TermQuery(StoredList *list_) : Advancable() {
         list = list_;
         reset();
     }
+    const char *to_string(void) {
+        snprintf(sbuf,PATH_MAX,"<[%d @ %d] %s>",doc_id,index,this->list->path);
+        return sbuf;
+    }
+
     s32 update(void) {
         struct entry *e = list->entry_at(index);
         if (e == NULL)
@@ -314,7 +320,7 @@ public:
     s32 skip_to(s32 target) {
         if (doc_id == target || target == NO_MORE)
             return target;
-        u32 end = count() -1;
+        u32 end = count();
         u32 start = index >= 0 ? index : 0;
         while (start < end) {
             u32 mid = start + ((end - start) / 2);
@@ -362,9 +368,19 @@ public:
     s32 doc_id;
     std::vector<Advancable *> queries;
     BoolMustQuery() : BoolQuery() { doc_id = -1; };
+    char sbuf[PATH_MAX];
+    const char *to_string(void) {
+        int off = 0;
+        off = snprintf(sbuf,PATH_MAX,"+([%d]",doc_id);
+        for (auto query : queries) {
+            off += snprintf(sbuf + off,PATH_MAX - off," %s ",query->to_string());
+        }
+        snprintf(sbuf + off,PATH_MAX - off,")");
+        return sbuf;
+    }
 
     void add(Advancable *q) {
-        assert(q != this);
+        assert(q && q != this);
         queries.push_back(q);
         std::sort(queries.begin(), queries.end(), smallest);
         reset();
@@ -389,6 +405,7 @@ public:
     s32 next(void) {
         if (queries.size() == 0)
             return NO_MORE;
+ 
         return _skip_to(queries[0]->next());
     }
 
@@ -400,9 +417,13 @@ public:
     }
 
     void score(struct scored *s) {
+        int i = 0;
         for (auto query : queries) {
+            if (query->current() != doc_id)
+                fprintf(stderr,"%s\n",to_string());
             assert(query->current() == doc_id);
             query->score(s);
+            i++;
         }
     }
 
@@ -425,9 +446,19 @@ public:
     s32 doc_id;
     std::vector<Advancable *> queries;
     BoolShouldQuery() : BoolQuery() { doc_id = -1; };
+    char sbuf[PATH_MAX];
+    const char *to_string(void) {
+        int off = 0;
+        off = snprintf(sbuf,PATH_MAX,"~([%d]",doc_id);
+        for (auto query : queries) {
+            off += snprintf(sbuf + off,PATH_MAX - off," %s ",query->to_string());
+        }
+        snprintf(sbuf + off,PATH_MAX - off,")");
+        return sbuf;
+    }
 
     void add(Advancable *q) {
-        assert(q != this);
+        assert(q && q != this);
         queries.push_back(q);
         reset();
     }
@@ -468,7 +499,10 @@ public:
     u32 count(void) const {
         if (queries.size() == 0)
             return 0;
-        return queries[0]->count();
+        u32 c = 0;
+        for (auto query : queries)
+            c += query->count();
+        return c;
     }
 
     void reset(void) {

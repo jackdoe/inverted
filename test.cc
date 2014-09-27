@@ -42,4 +42,5 @@ int main(void) {
     for (auto s : __topN(&q_new_york_state,3)) {
         printf("doc: %d, score: %f\n",s.id,s.score);
     }
+    printf("%s\n",q_new_york_state.to_string());
 }

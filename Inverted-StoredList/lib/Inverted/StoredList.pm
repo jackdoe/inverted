@@ -11,7 +11,80 @@ our $VERSION = '0.01';
 require XSLoader;
 XSLoader::load('Inverted::StoredList', $VERSION);
 
-# Preloaded methods go here.
+sub new {
+    my ($klass,$params) = @_;
+    $params ||= {};
+    $params->{root} ||= '/tmp/';
+    $params->{stored_payload_size} ||= 4;
+    $params->{directory_split} ||= 32;
+    my $self = bless {
+        params => $params,
+        terms  => {},
+    }, $klass;
+    return $self;
+}
+
+sub term {
+    my ($self,$term) = @_;
+    $term = $self->{terms}{$term} ||= Inverted::StoredList::MMAP->new(
+        "$term.idx",
+        $self->{params}{root},
+        $self->{params}{stored_payload_size},
+        $self->{params}{directory_split}
+    );
+    return $term;
+}
+
+sub index {
+    my ($self,$terms,$doc_id) = @_;
+    $terms = [ $terms ] unless ref($terms) eq 'ARRAY';
+    for my $t(@{ $terms }) {
+        $self->term($t)->insert($doc_id);
+    }
+}
+=begin
+search({
+    must => [
+        { term => "jack" },
+        { should => [ { term => "doe" }, { term => "moe" } ] },
+    ],
+    term => "foo"
+}
+
+=cut
+use Data::Dumper;
+sub _generate {
+    my ($self,$top,$query,$ref_cnt_hack) = @_;
+    for my $k(keys(%{ $query })) {
+        my $internal = undef;
+        if ($k eq 'term') {
+            $internal = Inverted::StoredList::TermQuery->new($self->term($query->{$k}));
+        } elsif ($k eq 'should' || $k eq 'must') {
+            $internal = $k eq 'should' ? 
+                Inverted::StoredList::BoolShouldQuery->new() :
+                Inverted::StoredList::BoolMustQuery->new();
+
+            for my $s(@{ $query->{$k} }) {
+                $self->_generate($internal,$s,$ref_cnt_hack);
+            }
+        } else {
+            die "dont know what to do with <$k>";
+        }
+        $ref_cnt_hack->{$internal} = $internal;
+        $top->add($internal);
+    }
+}
+
+sub search {
+    my ($self,$query,$n) = @_;
+    $n ||= 20;
+    my $ref_cnt_hack = {}; # ->add doesnt increment the refcnt, so just store everything in a hash
+    my $top = Inverted::StoredList::BoolMustQuery->new();
+    $self->_generate($top,$query,$ref_cnt_hack);
+    my $results = Inverted::StoredList::Search::topN($top,$n);
+    %$ref_cnt_hack = ();
+    return $results;
+}
 
 1;
 __END__
