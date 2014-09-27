@@ -318,8 +318,11 @@ public:
     }
 
     s32 skip_to(s32 target) {
-        if (doc_id == target || target == NO_MORE)
+        if (doc_id == target || target == NO_MORE) {
+            doc_id = target;
             return target;
+        }
+
         u32 end = count();
         u32 start = index >= 0 ? index : 0;
         while (start < end) {

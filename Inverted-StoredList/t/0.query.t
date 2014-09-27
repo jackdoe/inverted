@@ -7,6 +7,7 @@ my $i = Inverted::StoredList->new();
 $i->index(["jack","doe","moe","foo","bar"],3);
 $i->index(["jack","doe","bar"],4);
 $i->index(["doe","bar","moe"],5);
+$i->index(["jack","doe"],6);
 my $result = $i->search({
     must => [
         { term => "jack" },
