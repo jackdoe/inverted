@@ -33,7 +33,7 @@ int main(void) {
     TermQuery q_state(&t_state);
 
     BoolMustQuery q_new_york;
-    BoolMustQuery q_new_york_state;
+    BoolShouldQuery q_new_york_state;
     q_new_york.add(&q_new);
     q_new_york.add(&q_york);
     q_new_york_state.add(&q_new_york);

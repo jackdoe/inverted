@@ -28,13 +28,13 @@ my $second = Inverted::StoredList->new("state.idx","/tmp/",4,32);
 $second->insert(2);
 my $secondq = Inverted::StoredList::TermQuery->new($second);
 
-my $bq = Inverted::StoredList::BoolMustQuery->new();
+my $bq = Inverted::StoredList::BoolShouldQuery->new();
 $bq->add($tq);
 $bq->add($secondq);
 
 my $tq2 = Inverted::StoredList::TermQuery->new($second);
 $top = Inverted::StoredList::Search::topN($bq,5);
-is (scalar(@{ $top }), 1);
+is (scalar(@{ $top }), 3);
 is ($top->[0]->{__id}, 2);
 
 unlink ($n->get_path());

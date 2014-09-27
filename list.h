@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <iostream>
 #include <sys/stat.h>
+#include <limits.h>
 
 #ifndef sayx
 #define FORMAT(fmt,arg...) fmt " [%s()]\n",##arg,__func__
@@ -26,7 +27,7 @@
 
 #define saypx(fmt,arg...) sayx(fmt " { %s(%d) }",##arg,errno ? strerror(errno) : "undefined error",errno);
 
-#define NO_MORE -1
+#define NO_MORE INT_MAX
 typedef uint32_t u32;
 typedef uint64_t u64;
 typedef uint16_t u16;
@@ -265,11 +266,11 @@ public:
 
 class Advancable {
 public:
+    virtual s32 current() = 0;
     virtual s32 skip_to(s32 id) = 0;
     virtual u32 count(void) const = 0;
-    virtual bool score(struct scored *scored) = 0;
+    virtual void score(struct scored *scored) = 0;
     virtual s32 next(void) = 0;
-    virtual s32 current(void) = 0;
     virtual void reset(void) = 0;
 };
 
@@ -290,75 +291,66 @@ bool scored_cmp (const scored a, const scored b) {
 class TermQuery : public Advancable {
 public:
     s32 index;
+    s32 doc_id;
     StoredList *list;
     TermQuery(StoredList *list_) : Advancable() {
         list = list_;
         reset();
     }
+    s32 update(void) {
+        struct entry *e = list->entry_at(index);
+        if (e == NULL)
+            doc_id = NO_MORE;
+        else
+            doc_id = e->id;
+        
+        return doc_id;
+    }
 
-    s32 skip_to(s32 id) {
-        if (index == NO_MORE)
-            return NO_MORE;
-        if (current() == id)
-            return id;
-        if (id == NO_MORE) {
-            index = NO_MORE;
-            return id;
-        }
-        u32 end = count();
-        u32 mid = end;
-        u32 start = index;
+    s32 current() {
+        return doc_id;
+    }
 
-        //     V
-        // [ 4,5,8,9,10 ]
-        //       V
-        // [ 4,5,8,9,10 ]
+    s32 skip_to(s32 target) {
+        if (doc_id == target || target == NO_MORE)
+            return target;
+        u32 end = count() -1;
+        u32 start = index >= 0 ? index : 0;
         while (start < end) {
-            mid = start + ((end - start) / 2);
+            u32 mid = start + ((end - start) / 2);
             struct entry *e = list->entry_at(mid, 0);
-            if (e->id < id) {
-                start = mid + 1;
-            } else if (e->id > id) {
-                end = mid;
-            } else {
+            if (e->id == target) {
                 start = mid;
                 break;
             }
+            if (e->id < target)
+                start = mid + 1;
+            else
+                end = mid;
         }
-        if (start >= end)
-            index = NO_MORE;
-        else
-            index = start;
-        return current();
+        index = start;
+        return update();
+    }
+    s32 next(void) {
+        if (doc_id != -1)
+            index++;
+        return update();
     }
 
     u32 count(void) const {
         return list->count();
     }
 
-    bool score(struct scored *s) {
+    void score(struct scored *s) {
         struct entry *e = list->entry_at(index);
-        if (e == NULL)
-            return false;
+        assert(e != NULL);
         s->id = e->id;
         s->score += 1;
-        return true;
-    }
-
-    s32 current(void) {
-        struct entry *e = list->entry_at(index);
-        if (e != NULL)
-            return e->id;
-        return NO_MORE;
-    }
-
-    s32 next(void) {
-        index++;
-        return current();
     }
 
     void reset(void) {
         index = 0;
+        doc_id = -1;
     }
 };
 class BoolQuery : public Advancable {
@@ -367,11 +359,9 @@ class BoolQuery : public Advancable {
 
 class BoolMustQuery : public BoolQuery {
 public:
-    s32 cursor;
+    s32 doc_id;
     std::vector<Advancable *> queries;
-    BoolMustQuery() : BoolQuery() {
-        cursor = NO_MORE;
-    }
+    BoolMustQuery() : BoolQuery() { doc_id = -1; };
 
     void add(Advancable *q) {
         assert(q != this);
@@ -380,48 +370,40 @@ public:
         reset();
     }
 
-    s32 skip_to(s32 id) {
-        if (cursor == NO_MORE)
-            return NO_MORE;
-        int i;
-        auto lead = queries[0];
-        for (;;) {
-        again:
-            id = lead->skip_to(id);
-            for (i = 1; i < queries.size(); i++) {
-                auto query = queries[i];
-                if (query->current() != id) {
-                    query->skip_to(id);
-                    if (query->current() > id) {
-                        id = query->current();
-                        goto again;
-                    }
-                }
+    s32 _skip_to(s32 id) {
+        for (s32 i = 1; i < queries.size(); i++) {
+            s32 n = queries[i]->skip_to(id);
+            if (n > id) {
+                id = queries[0]->skip_to(n);
+                i = 1;
             }
-            break;
         }
-        cursor = id;
-        return cursor;
-    }
-
-    bool score(struct scored *s) {
-        // position everything to the id or fail
-        if (skip_to(cursor) == NO_MORE)
-            return false;
-
-        for (auto query : queries) {
-            assert(query->current() == cursor);
-            query->score(s);
-        }
-        return true;
-    }
+        doc_id = queries[0]->current();
+        return doc_id;
+    };
 
     s32 current(void) {
-        return cursor;
+        return doc_id;
     }
 
     s32 next(void) {
-        return skip_to(queries[0]->next());
+        if (queries.size() == 0)
+            return NO_MORE;
+        return _skip_to(queries[0]->next());
+    }
+
+    s32 skip_to(s32 id) {
+        if (queries.size() == 0)
+            return NO_MORE;
+
+        return _skip_to(queries[0]->skip_to(id));
+    }
+
+    void score(struct scored *s) {
+        for (auto query : queries) {
+            assert(query->current() == doc_id);
+            query->score(s);
+        }
     }
 
     u32 count(void) const {
@@ -431,15 +413,71 @@ public:
     }
 
     void reset(void) {
-        for (auto query : queries) {
+        for (auto query : queries)
             query->reset();
-        }
-        if (queries.size() > 0)
-            cursor = queries[0]->current();
-        else
-            cursor = NO_MORE;
+        doc_id = -1;
     }
 };
+
+
+class BoolShouldQuery : public BoolQuery {
+public:
+    s32 doc_id;
+    std::vector<Advancable *> queries;
+    BoolShouldQuery() : BoolQuery() { doc_id = -1; };
+
+    void add(Advancable *q) {
+        assert(q != this);
+        queries.push_back(q);
+        reset();
+    }
+
+    s32 current(void) {
+        return doc_id;
+    }
+
+    s32 next(void) {
+        s32 new_doc = NO_MORE;
+        for (auto query : queries) {
+            s32 cur_doc = query->current();
+            if (cur_doc == current()) cur_doc = query->next();
+            if (cur_doc < new_doc) new_doc = cur_doc;
+        }
+        doc_id = new_doc;
+        return doc_id;
+    }
+
+    s32 skip_to(s32 target) {
+        s32 new_doc = NO_MORE;
+        for (auto query : queries) {
+            s32 cur_doc = query->current();
+            if (cur_doc < target) cur_doc = query->skip_to(target);
+            if (cur_doc < new_doc) new_doc = cur_doc;
+        }
+        doc_id = new_doc;
+        return doc_id;
+    }
+
+    void score(struct scored *s) {
+        for (auto query : queries) {
+            if (query->current() == doc_id)
+                query->score(s);
+        }
+    }
+
+    u32 count(void) const {
+        if (queries.size() == 0)
+            return 0;
+        return queries[0]->count();
+    }
+
+    void reset(void) {
+        for (auto query : queries)
+            query->reset();
+        doc_id = -1;
+    }
+};
+
 
 std::vector<scored> __topN(Advancable *query,int n_items) {
     assert(query != NULL);
@@ -453,7 +491,8 @@ std::vector<scored> __topN(Advancable *query,int n_items) {
     min_item.score = 0;
     bool is_heap = false;
 
-    while (query->score(&scored)) {
+    while (query->next() != NO_MORE) {
+        query->score(&scored);
         if (scored.score > min_item.score) {
             if (items.size() >= n_items) {
                 items.push_back(scored);
@@ -472,7 +511,6 @@ std::vector<scored> __topN(Advancable *query,int n_items) {
             }
         }
         scored.score = 0;
-        query->next();
     }
     std::sort(items.begin(), items.end(), scored_cmp);
     return items;

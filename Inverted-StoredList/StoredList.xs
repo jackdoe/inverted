@@ -9,6 +9,7 @@ extern "C" {
 #include "ppport.h"
 
 #ifdef __cplusplus
+#define dNOOP (void)0 
 }
 #endif
 
@@ -57,6 +58,17 @@ BoolMustQuery::DESTROY()
 
 void
 BoolMustQuery::add(Advancable *query)
+
+MODULE = Inverted::StoredList		PACKAGE = Inverted::StoredList::BoolShouldQuery
+
+BoolShouldQuery *
+BoolShouldQuery::new()
+
+void
+BoolMustQuery::DESTROY()
+
+void
+BoolShouldQuery::add(Advancable *query)
 
 
 MODULE = Inverted::StoredList		PACKAGE = Inverted::StoredList::Search
