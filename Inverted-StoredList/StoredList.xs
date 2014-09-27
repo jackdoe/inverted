@@ -9,7 +9,7 @@ extern "C" {
 #include "ppport.h"
 
 #ifdef __cplusplus
-#define dNOOP (void)0 
+#define dNOOP (void)0
 }
 #endif
 
@@ -28,6 +28,9 @@ StoredList::stored_payload_size()
 
 int
 StoredList::count()
+
+void
+StoredList::sync()
 
 void
 StoredList::insert(int id)

@@ -14,6 +14,11 @@
 #include <iostream>
 #include <sys/stat.h>
 #include <limits.h>
+#ifndef __GNUC__
+#define __builtin_expect(a,b) a
+#endif
+#define likely(x)      __builtin_expect(!!(x), 1)
+#define unlikely(x)    __builtin_expect(!!(x), 0)
 
 #ifndef sayx
 #define FORMAT(fmt,arg...) fmt " [%s()]\n",##arg,__func__
@@ -126,7 +131,7 @@ public:
     }
 
     void sync(void) {
-        if (msync(stored,size,MS_SYNC) == -1)
+        if (unlikely(msync(stored,size,MS_SYNC)) == -1)
             saypx("msync");
     }
 
@@ -195,7 +200,7 @@ public:
         assert(id >= 0);
         int found;
         u32 where = closest(id, &found);
-        if (found) {
+        if (likely(found)) {
             int n = stored->stats.n;
             size_t bytes = sizeof_entry(n - where - 1);
             if (bytes > 0)
@@ -222,7 +227,7 @@ public:
 
     void _mmap(size_t n) {
         stored = (struct stored *) mmap(0, n, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
-        if (stored == MAP_FAILED) {
+        if (unlikely(stored == MAP_FAILED)) {
             close(fd);
             saypx("mmap");
         }
@@ -238,25 +243,25 @@ public:
     void _remap(int n) {
         assert(stored != NULL);
         u32 asize = sizeof(struct stored) + sizeof_entry(stored->stats.n);
-        if (asize + n >= size) {
-            n += asize + 1000 * sizeof_entry();
+        if (unlikely(asize + n >= size)) {
+            n += asize + 10000 * sizeof_entry();
             _munmap();
             if (ftruncate(fd, n) == -1)
                 saypx("ftruncate");
             _mmap(n);
         }
     }
-    u32 stored_payload_size(void) {
+    inline u32 stored_payload_size(void) {
         return stored->stats.max_payload_size;
     }
-    size_t sizeof_entry(int n = 1) {
+    inline size_t sizeof_entry(int n = 1) {
         return (sizeof(struct entry) + stored_payload_size()) * n;
     }
     struct entry *entry_at(u32 pos, s32 expect = 0) {
-        if (pos >= count())
+        if (unlikely(pos >= count()))
             return NULL;
         struct entry *e = (struct entry *) (stored->begin + (sizeof_entry(pos)));
-        if (expect > 0 && e->id != expect)
+        if (unlikely(expect > 0 && e->id != expect))
             return NULL;
         return e;
     }
@@ -318,7 +323,9 @@ public:
     }
 
     s32 skip_to(s32 target) {
-        if (doc_id == target || target == NO_MORE) {
+        if (doc_id == target)
+            return target;
+        else if (target == NO_MORE) {
             doc_id = target;
             return target;
         }
@@ -328,7 +335,7 @@ public:
         while (start < end) {
             u32 mid = start + ((end - start) / 2);
             struct entry *e = list->entry_at(mid, 0);
-            if (e->id == target) {
+            if (unlikely(e->id == target)) {
                 index = mid;
                 doc_id = target;
                 return doc_id;
@@ -341,8 +348,9 @@ public:
         index = start;
         return update();
     }
+
     s32 next(void) {
-        if (doc_id != -1)
+        if (likely(doc_id != -1))
             index++;
         return update();
     }
@@ -393,7 +401,7 @@ public:
     s32 _skip_to(s32 id) {
         for (s32 i = 1; i < queries.size(); i++) {
             s32 n = queries[i]->skip_to(id);
-            if (n > id) {
+            if (likely(n > id)) {
                 id = queries[0]->skip_to(n);
                 i = 1;
             }
@@ -407,32 +415,28 @@ public:
     }
 
     s32 next(void) {
-        if (queries.size() == 0)
+        if (unlikely(queries.size() == 0))
             return NO_MORE;
  
         return _skip_to(queries[0]->next());
     }
 
     s32 skip_to(s32 id) {
-        if (queries.size() == 0)
+        if (unlikely(queries.size() == 0))
             return NO_MORE;
 
         return _skip_to(queries[0]->skip_to(id));
     }
 
     void score(struct scored *s) {
-        int i = 0;
         for (auto query : queries) {
-            if (query->current() != doc_id)
-                fprintf(stderr,"%s\n",to_string());
             assert(query->current() == doc_id);
             query->score(s);
-            i++;
         }
     }
 
     u32 count(void) const {
-        if (queries.size() == 0)
+        if (unlikely(queries.size() == 0))
             return 0;
         return queries[0]->count();
     }
@@ -495,7 +499,7 @@ public:
 
     void score(struct scored *s) {
         for (auto query : queries) {
-            if (query->current() == doc_id)
+            if (likely(query->current() == doc_id))
                 query->score(s);
         }
     }
@@ -531,10 +535,10 @@ std::vector<scored> __topN(Advancable *query,int n_items) {
 
     while (query->next() != NO_MORE) {
         query->score(&scored);
-        if (scored.score > min_item.score) {
-            if (items.size() >= n_items) {
+        if (unlikely(scored.score > min_item.score)) {
+            if (likely(items.size() >= n_items)) {
                 items.push_back(scored);
-                if (!is_heap) {
+                if (likely(!is_heap)) {
                     is_heap = true;
                     make_heap(items.begin(), items.end(), scored_cmp);
                 } else {
