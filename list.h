@@ -399,13 +399,15 @@ public:
     }
 
     s32 _skip_to(s32 id) {
+    again:
         for (s32 i = 1; i < queries.size(); i++) {
             s32 n = queries[i]->skip_to(id);
             if (likely(n > id)) {
                 id = queries[0]->skip_to(n);
-                i = 1;
+                goto again;
             }
         }
+
         doc_id = queries[0]->current();
         return doc_id;
     };

@@ -11,7 +11,7 @@ WriteMakefile(
     CC            => $CC,
     LD            => '$(CC)',
     LIBS              => [''], # e.g., '-lm'
-    DEFINE            => '-g3 -O0', # e.g., '-DHAVE_SOMETHING'
+    DEFINE            => '-g0 -O3', # e.g., '-DHAVE_SOMETHING'
     INC               => '-I.', # e.g., '-I. -I/usr/include/other'
     XSOPT             => '-C++',
     TYPEMAPS          => ['perlobject.map','typemap'],
