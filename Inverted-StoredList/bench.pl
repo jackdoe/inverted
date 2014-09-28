@@ -3,7 +3,7 @@ use Data::Dumper;
 use Time::HiRes qw(time);
 use Inverted::StoredList;
 my $i = Inverted::StoredList->new();
-my @terms = ("jack","doe","foo","bar");
+my @terms = ("jack","doe","foo","bar",'a'..'z');
 
 my $t0 = time();
 
@@ -13,12 +13,8 @@ if (@ARGV && $ARGV[0] eq 'build') {
     srand;
     for my $id(1..100_000_000) {
         my @t = ("everywhere");
-
-        for my $term(@terms) {
-            push @t,$term if (int(rand(100)) == 1);
-        }
-
-        $i->index(\@t,$id) if @t;
+        push @t, $terms[rand(@terms)] for 1..5;
+        $i->index(\@t,$id);
         if ($n != 0 && ($n % $per_report) == 0) {
 
             my $diff = time() - $t0;
@@ -30,21 +26,13 @@ if (@ARGV && $ARGV[0] eq 'build') {
     }
 }
 
-$t0 = time();
-my $result = $i->search({
-    must => [
-        { term => "jack" },
-        { term => "doe" },
-    ]
-});
-print Dumper([time() - $t0,$result]);
-
-
-$t0 = time();
-my $result = $i->search({
-    must => [
-        { term => "jack" },
-        { term => "doe" },
-    ]
-});
-print Dumper([time() - $t0,$result]);
+while(1) {
+    my $result = $i->search({
+        must => [
+            { term => "jack" },
+            { term => "doe" },
+            { term => "everywhere" },
+            ]
+    });
+    print Dumper([$result->{took},$result->{total}]);
+}
