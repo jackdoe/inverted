@@ -12,7 +12,7 @@ use Test::More tests => 8;
 BEGIN { use_ok('Inverted::StoredList') };
 
 my $n = Inverted::StoredList::MMAP->new("new_york.idx","/tmp/",4,32);
-is ($n->stored_payload_size(),4);
+is ($n->get_stored_payload_size(),4);
 is (-f $n->get_path(),1);
 
 $n->insert(1);

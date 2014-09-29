@@ -11,7 +11,7 @@ if (@ARGV && $ARGV[0] eq 'build') {
     my $n = 0;
     my $per_report = 100_000;
     srand;
-    for my $id(1..100_000_000) {
+    for my $id(1..10_000_000) {
         my @t = ("everywhere");
         push @t, $terms[rand(@terms)] for 1..5;
         $i->index(\@t,$id);
@@ -31,6 +31,9 @@ while(1) {
         must => [
             { term => "jack" },
             { term => "doe" },
+            { term => "a" },
+            { term => "b" },
+            { term => "d" },
             { term => "everywhere" },
             ]
     });

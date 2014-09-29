@@ -14,6 +14,7 @@
 #include <iostream>
 #include <sys/stat.h>
 #include <limits.h>
+
 #ifndef __GNUC__
 #define __builtin_expect(a,b) a
 #endif
@@ -94,6 +95,7 @@ public:
     int fd;
     struct stored *stored;
     char path[PATH_MAX];
+    u32 stored_payload_size;
     StoredList(const char *fn, const char *root = "/tmp", int initial_payload_size = 4, int buckets = 32) {
         assert(fn != NULL);
         assert(has_suffix(fn, ".idx") == true);
@@ -122,7 +124,8 @@ public:
         }
         _mmap(st.st_size);
         // D("found data with %d payload size, entry size: %lu",stored_payload_size(),sizeof_entry());
-        assert(initial_payload_size == stored_payload_size());
+        assert(initial_payload_size == stored->stats.max_payload_size);
+        stored_payload_size = stored->stats.max_payload_size;
     }
 
     ~StoredList() {
@@ -139,7 +142,7 @@ public:
         return path;
     }
 
-    u32 count(void) const {
+    inline u32 count(void) const {
         return stored->stats.n;
     }
 
@@ -172,7 +175,7 @@ public:
     }
 
     void insert(s32 id, u8 *buf, u8 len) {
-        assert(len <= stored_payload_size());
+        assert(len <= stored->stats.max_payload_size);
         int found;
         u32 where = closest(id, &found);
         struct entry *e;
@@ -217,7 +220,7 @@ public:
             e = entry_at(i, 0);
             printf("pos: %d; id: %d; freq: %d; payload:\n\t", i, e->id, e->freq);
             printf("[");
-            for (j = 0; j < stored_payload_size(); j++) {
+            for (j = 0; j < stored->stats.max_payload_size; j++) {
                 printf(" 0x%x  ", e->payload[j]);
             }
             printf("]");
@@ -251,20 +254,28 @@ public:
             _mmap(n);
         }
     }
-    inline u32 stored_payload_size(void) {
-        return stored->stats.max_payload_size;
-    }
+
     inline size_t sizeof_entry(int n = 1) {
-        return (sizeof(struct entry) + stored_payload_size()) * n;
+        return (sizeof(struct entry) + stored_payload_size) * n;
     }
+
+    inline s32 get_stored_payload_size(void) {
+        return stored_payload_size;
+    }
+
     struct entry *entry_at(u32 pos, s32 expect = 0) {
         if (unlikely(pos >= count()))
             return NULL;
-        struct entry *e = (struct entry *) (stored->begin + (sizeof_entry(pos)));
+        struct entry *e = (struct entry *) (stored->begin + ((sizeof(struct entry) + stored_payload_size) * pos));
         if (unlikely(expect > 0 && e->id != expect))
             return NULL;
         return e;
     }
+
+    inline s32 id_at_unsafe(u32 pos) {
+        return *(int *)(stored->begin + ((sizeof(struct entry) + stored_payload_size) * pos));
+    }
+
 };
 
 
@@ -297,6 +308,7 @@ class TermQuery : public Advancable {
 public:
     s32 index;
     s32 doc_id;
+    s32 _end;
     StoredList *list;
     char sbuf[PATH_MAX];
     TermQuery(StoredList *list_) : Advancable() {
@@ -308,13 +320,12 @@ public:
         return sbuf;
     }
 
-    s32 update(void) {
-        struct entry *e = list->entry_at(index);
-        if (e == NULL)
+    inline s32 update(void) {
+        if (unlikely(index >= _end)) {
             doc_id = NO_MORE;
-        else
-            doc_id = e->id;
-        
+        } else {
+            doc_id = list->id_at_unsafe(index);
+        }
         return doc_id;
     }
 
@@ -323,24 +334,24 @@ public:
     }
 
     s32 skip_to(s32 target) {
-        if (doc_id == target)
+        if (unlikely(doc_id == target))
             return target;
-        else if (target == NO_MORE) {
+        else if (unlikely(target == NO_MORE)) {
             doc_id = target;
             return target;
         }
 
-        u32 end = count();
-        u32 start = index >= 0 ? index : 0;
-        while (start < end) {
+        u32 end = _end;
+        u32 start = likely(index >= 0) ? index : 0;
+        while (likely(start < end)) {
             u32 mid = start + ((end - start) / 2);
-            struct entry *e = list->entry_at(mid, 0);
-            if (unlikely(e->id == target)) {
+            s32 id = list->id_at_unsafe(mid);
+            if (unlikely(id == target)) {
                 index = mid;
                 doc_id = target;
                 return doc_id;
             }
-            if (e->id < target)
+            if (likely(id < target))
                 start = mid + 1;
             else
                 end = mid;
@@ -369,6 +380,7 @@ public:
     void reset(void) {
         index = 0;
         doc_id = -1;
+        _end = count();
     }
 };
 class BoolQuery : public Advancable {
@@ -398,7 +410,7 @@ public:
         reset();
     }
 
-    s32 _skip_to(s32 id) {
+    inline s32 _skip_to(s32 id) {
     again:
         for (s32 i = 1; i < queries.size(); i++) {
             s32 n = queries[i]->skip_to(id);

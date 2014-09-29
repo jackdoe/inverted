@@ -24,7 +24,7 @@ char *
 StoredList::get_path()
 
 int
-StoredList::stored_payload_size()
+StoredList::get_stored_payload_size()
 
 int
 StoredList::count()
